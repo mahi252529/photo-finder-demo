@@ -60,11 +60,14 @@ p{margin:0}
 .field input{font:400 15px var(--body);color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:11px 12px;width:100%}
 .field input:focus-visible{outline:3px solid var(--marigold);outline-offset:1px}
 .log{display:grid}
-.log-row{display:grid;grid-template-columns:1fr auto;gap:2px 10px;padding:10px 0;border-top:1px solid var(--line)}
+.log-row{display:grid;grid-template-columns:44px 1fr auto;gap:2px 10px;padding:10px 0;border-top:1px solid var(--line);align-items:center}
+.log-row .sf{grid-row:1 / span 2;width:44px;height:44px;border-radius:50%;overflow:hidden;background:var(--bg);border:2px solid var(--line);display:grid;place-items:center}
+.log-row .sf img,.log-row .sf svg{width:100%;height:100%;object-fit:cover;display:block}
+.log-row .sf .gone{font-size:9px;color:var(--muted)}
 .log-row:first-child{border-top:0}
 .log-row .who{font-weight:600;font-size:14px;min-width:0;overflow-wrap:anywhere}
 .log-row .when{font-size:12px;color:var(--muted);text-align:right;font-variant-numeric:tabular-nums}
-.log-row .meta{grid-column:1 / -1;display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:12.5px;color:var(--muted)}
+.log-row .meta{grid-column:2 / -1;display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:12.5px;color:var(--muted)}
 .tag{font-size:11px;border:1px solid var(--line);border-radius:99px;padding:1px 8px;color:var(--muted)}
 .pill.you{background:var(--marigold-soft);color:var(--ink)}
 .check{display:flex;gap:10px;align-items:flex-start;font-size:14px}
@@ -116,7 +119,7 @@ p{margin:0}
 <div class="app">
   <div class="demo-bar">
     <span class="demo-tag">Demo · sample photos, matching simulated</span>
-    <div class="switch" role="group" aria-label="View">
+    <div class="switch" id="switch" role="group" aria-label="View" hidden>
       <button id="tab-guest" aria-pressed="true">Guest</button>
       <button id="tab-photo" aria-pressed="false">Photographer</button>
     </div>
@@ -137,7 +140,7 @@ p{margin:0}
         <span class="step-n">2</span><span>Agree to the face search</span>
         <span class="step-n">3</span><span>See and download your photos</span>
       </div>
-      <p class="privacy">Your selfie stays on your phone. Only a face code is compared with this wedding's photos, and it is deleted after 7 days.</p>
+      <p class="privacy">Your selfie and name are seen only by the photographer, never by other guests. They are deleted 30 days after the wedding.</p>
       <button class="btn primary" id="start">Find my photos</button>
     </div>
 
@@ -180,7 +183,7 @@ p{margin:0}
         <li>Matching can be wrong or miss some photos.</li>
         <li>This is optional. You can stop now.</li>
         <li>Your face code is kept 7 days, then deleted. You can delete it any time.</li>
-        <li>For the photographer's security, your name, search time and the photos you download are recorded and kept 30 days.</li>
+        <li>For the photographer's security, your selfie, name, search time and the photos you download are saved. Only the photographer can see them, never other guests. They are deleted after 30 days.</li>
         <li>Questions: contact the photographer, Ravi Studio.</li>
       </ul>
       <label class="field" for="g-name">Your name
@@ -206,7 +209,7 @@ p{margin:0}
       <div class="progress"><i id="bar"></i></div>
       <div class="scan-steps" id="scan">
         <div><span class="dot"></span>Checking your selfie for one face</div>
-        <div><span class="dot"></span>Making a face code on your phone</div>
+        <div><span class="dot"></span>Making a face code from your selfie</div>
         <div><span class="dot"></span>Comparing with 312 faces in 48 photos</div>
         <div><span class="dot"></span>Keeping only confident matches</div>
       </div>
@@ -257,6 +260,21 @@ p{margin:0}
   </section>
 
   <!-- PHOTOGRAPHER VIEW -->
+  <section id="lock" hidden>
+    <div class="card">
+      <div>
+        <p class="label">Photographer only</p>
+        <h2>Enter admin PIN</h2>
+      </div>
+      <p class="small muted">Guest selfies, names and downloads are visible only after login. The real system uses a password plus a phone code.</p>
+      <label class="field" for="pin">PIN
+        <input type="password" id="pin" inputmode="numeric" maxlength="8" autocomplete="off">
+      </label>
+      <p class="small" id="pin-err" style="color:var(--bad)" hidden>Wrong PIN. Try again.</p>
+      <button class="btn primary" id="unlock">Open dashboard</button>
+    </div>
+  </section>
+
   <section id="photo" hidden>
     <div class="card">
       <div>
@@ -264,6 +282,7 @@ p{margin:0}
         <h2>Sneha &amp; Karthik's Wedding</h2>
         <p class="small muted">Active · 14 Nov 2026 · Vijayawada</p>
       </div>
+      <button class="btn ghost small" id="lock-btn" style="align-self:flex-start">Lock dashboard</button>
       <div class="stats">
         <div class="stat"><b id="s-total">48</b><span>Photos uploaded</span></div>
         <div class="stat ok"><b id="s-done">46</b><span>Faces indexed</span></div>
@@ -391,25 +410,47 @@ p{margin:0}
   document.querySelectorAll('[data-go]').forEach(b => b.addEventListener('click', () => show(b.dataset.go)));
 
   // ---------- view switch ----------
+  // Demo-only lock: a PIN in page code is not real security. The real system uses Supabase login with two-factor.
+  const PIN = '2580';
+  function isAdmin(){ try { return sessionStorage.getItem('pf-admin') === '1'; } catch (e) { return adminMem; } }
+  let adminMem = false;
   function setView(v){
-    $('guest').hidden = v !== 'guest'; $('photo').hidden = v !== 'photo';
+    const admin = isAdmin();
+    $('switch').hidden = !admin;
+    $('lock').hidden = !(v === 'photo' && !admin);
+    $('guest').hidden = v !== 'guest'; $('photo').hidden = !(v === 'photo' && admin);
+    if (v === 'photo' && admin) drawLog();
     $('tab-guest').setAttribute('aria-pressed', v === 'guest'); $('tab-photo').setAttribute('aria-pressed', v === 'photo');
   }
   $('tab-guest').onclick = () => { setView('guest'); try { history.replaceState(null, '', '#guest'); } catch (e) {} };
   $('tab-photo').onclick = () => { setView('photo'); try { history.replaceState(null, '', '#photographer'); } catch (e) {} };
   function route(){ if (location.hash === '#photographer') setView('photo'); else { setView('guest'); show('welcome'); } }
   window.addEventListener('hashchange', route);
+  $('unlock').onclick = () => {
+    if ($('pin').value === PIN){ adminMem = true; try { sessionStorage.setItem('pf-admin', '1'); } catch (e) {} $('pin').value = ''; $('pin-err').hidden = true; setView('photo'); }
+    else { $('pin-err').hidden = false; }
+  };
+  $('lock-btn').onclick = () => { adminMem = false; try { sessionStorage.removeItem('pf-admin'); } catch (e) {} setView('photo'); };
+  $('pin').onkeydown = e => { if (e.key === 'Enter') $('unlock').click(); };
   $('open-guest').onclick = () => { setView('guest'); show('welcome'); };
 
   // ---------- guest flow ----------
   $('hero').innerHTML = photoSVG(4);
   $('start').onclick = () => show('selfie');
 
-  let who = null, selfieURL = null;
+  let who = null, selfieURL = null, selfieThumb = null;
+  function makeThumb(url, done){
+    const img = new Image();
+    img.onload = () => { const c = document.createElement('canvas'), n = 96, m = Math.min(img.width, img.height); c.width = c.height = n;
+      c.getContext('2d').drawImage(img, (img.width - m) / 2, (img.height - m) / 2, m, m, 0, 0, n, n);
+      try { done(c.toDataURL('image/jpeg', 0.7)); } catch (e) { done(null); } };
+    img.onerror = () => done(null); img.src = url;
+  }
   const sampleIds = ['priya','arjun','lakshmi'];
   $('picks').innerHTML = sampleIds.map(p => `<button class="pick" data-p="${p}" aria-pressed="false">${avatarSVG(p)}<span>${people[p].name}</span></button>`).join('');
   function setSelfie(p, url){
-    who = p; selfieURL = url || null;
+    who = p; selfieURL = url || null; selfieThumb = null;
+    if (url) makeThumb(url, t => selfieThumb = t);
     document.querySelectorAll('.pick').forEach(b => b.setAttribute('aria-pressed', !url && b.dataset.p === p));
     const face = url ? `<img src="${url}" alt="Your selfie">` : avatarSVG(p);
     $('face').innerHTML = face; $('face2').innerHTML = face;
@@ -431,10 +472,10 @@ p{margin:0}
   // ---------- guest activity log ----------
   const LOG_KEY = 'pf-demo-log';
   const samples = [
-    {id:'s1', name:'Ramesh Babu', phone:'98480 xxx21', at:'2026-11-14T19:42', matched:9, dl:9, sample:true},
-    {id:'s2', name:'Divya', phone:'', at:'2026-11-14T19:35', matched:14, dl:3, sample:true},
+    {id:'s1', av:'g4', name:'Ramesh Babu', phone:'98480 xxx21', at:'2026-11-14T19:42', matched:9, dl:9, sample:true},
+    {id:'s2', av:'g5', name:'Divya', phone:'', at:'2026-11-14T19:35', matched:14, dl:3, sample:true},
     {id:'s3', name:'Kiran Kumar', phone:'90000 xxx08', at:'2026-11-14T19:20', matched:6, dl:0, sample:true, deleted:true},
-    {id:'s4', name:'Anitha', phone:'', at:'2026-11-14T18:58', matched:0, dl:0, sample:true}
+    {id:'s4', av:'g3', name:'Anitha', phone:'', at:'2026-11-14T18:58', matched:0, dl:0, sample:true}
   ];
   let log = [];
   try { log = JSON.parse(localStorage.getItem(LOG_KEY) || '[]'); } catch (e) { log = []; }
@@ -449,7 +490,9 @@ p{margin:0}
     $('a-dl').textContent = rows.reduce((n, r) => n + (r.sample ? r.dl : (r.dl || []).length), 0);
     $('log').innerHTML = rows.map(r => {
       const dl = r.sample ? r.dl : (r.dl || []).length;
+      const face = r.selfie ? `<img src="${r.selfie}" alt="Selfie of ${esc(r.name)}">` : r.pick ? avatarSVG(r.pick) : r.av ? avatarSVG(r.av) : '<span class="gone">Deleted</span>';
       return `<div class="log-row">
+        <span class="sf">${face}</span>
         <span class="who">${esc(r.name)} ${r.sample ? '<span class="tag">sample</span>' : '<span class="pill you">you, this browser</span>'}</span>
         <span class="when">${fmtTime(r.at)}</span>
         <div class="meta">
@@ -466,7 +509,7 @@ p{margin:0}
   let extra = 0;
   $('search').onclick = () => {
     extra = 0;
-    cur = {id: 'g' + Date.now(), name: $('g-name').value.trim(), phone: $('g-phone').value.trim(), at: new Date().toISOString(), matched: 0, dl: []};
+    cur = {id: 'g' + Date.now(), name: $('g-name').value.trim(), phone: $('g-phone').value.trim(), at: new Date().toISOString(), matched: 0, dl: [], selfie: selfieThumb, pick: selfieURL ? null : who};
     log.push(cur); saveLog(); runMatch();
   };
   function runMatch(){
@@ -510,7 +553,7 @@ p{margin:0}
   };
   $('del').onclick = () => $('del-confirm').hidden = false;
   $('del-no').onclick = () => $('del-confirm').hidden = true;
-  $('del-yes').onclick = () => { $('del-confirm').hidden = true; if (cur){ cur.deleted = true; saveLog(); cur = null; } who = null; $('preview').hidden = true; $('to-consent').disabled = true; show('deleted'); };
+  $('del-yes').onclick = () => { $('del-confirm').hidden = true; if (cur){ cur.deleted = true; cur.selfie = null; cur.pick = null; saveLog(); cur = null; } who = null; $('preview').hidden = true; $('to-consent').disabled = true; show('deleted'); };
 
   let lbIndex = -1;
   function openLightbox(i){
