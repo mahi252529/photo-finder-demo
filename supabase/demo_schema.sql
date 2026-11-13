@@ -82,3 +82,39 @@ create policy "owner or admin deletes selfie" on storage.objects
 do $$ begin
   alter publication supabase_realtime add table public.guest_log;
 exception when duplicate_object then null; end $$;
+
+-- ---------------------------------------------------------------
+-- Update 2026-11-13: guests can no longer delete or replace their data.
+-- Only the admin can delete selfies; guests may only add downloads and set their selfie once.
+drop policy if exists "owner or admin deletes selfie" on storage.objects;
+drop policy if exists "admin deletes selfie" on storage.objects;
+create policy "admin deletes selfie" on storage.objects
+  for delete to authenticated using (bucket_id = 'selfies' and public.is_admin());
+
+drop policy if exists "guest updates own selfie" on storage.objects;
+
+revoke update on public.guest_log from anon, authenticated;
+grant update (matched, downloads, selfie_path) on public.guest_log to authenticated;
+
+create or replace function public.guard_guest_log()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  if public.is_admin() then
+    return new;
+  end if;
+  if old.selfie_path is not null and new.selfie_path is distinct from old.selfie_path then
+    raise exception 'selfie cannot be changed';
+  end if;
+  if not (old.downloads <@ new.downloads) then
+    raise exception 'downloads cannot be removed';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists guard_guest_log on public.guest_log;
+create trigger guard_guest_log before update on public.guest_log
+  for each row execute function public.guard_guest_log();

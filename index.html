@@ -182,8 +182,7 @@ p{margin:0}
         <li>Your selfie is used only to search <b>this wedding's</b> photos.</li>
         <li>Matching can be wrong or miss some photos.</li>
         <li>This is optional. You can stop now.</li>
-        <li>Your face code is kept 7 days, then deleted. You can delete it any time.</li>
-        <li>For the photographer's security, your selfie, name, search time and the photos you download are saved. Only the photographer can see them, never other guests. They are deleted after 30 days.</li>
+                <li>For the photographer's security, your selfie, name, search time and the photos you download are saved. Only the photographer can see them, never other guests. They are kept for 30 days after the wedding. To ask for removal, contact the photographer.</li>
         <li>Questions: contact the photographer, Ravi Studio.</li>
       </ul>
       <label class="field" for="g-name">Your name
@@ -234,14 +233,6 @@ p{margin:0}
         <button class="btn ghost" id="refresh">Check for new photos</button>
         <button class="btn ghost" data-go="selfie">New selfie</button>
       </div>
-      <button class="btn danger" id="del">Delete my data</button>
-      <div id="del-confirm" class="card" style="border-color:var(--bad)" hidden>
-        <p>This deletes your face code and results now. You can search again later with a new selfie.</p>
-        <div class="row">
-          <button class="btn ghost" id="del-no">Keep</button>
-          <button class="btn danger" id="del-yes">Delete</button>
-        </div>
-      </div>
     </div>
 
     <!-- 6 No match -->
@@ -251,12 +242,6 @@ p{margin:0}
       <button class="btn primary" data-go="selfie">Try another selfie</button>
     </div>
 
-    <!-- 7 Deleted -->
-    <div class="card" data-screen="deleted" hidden>
-      <h2>Your data is deleted</h2>
-      <p class="muted">Your face code and results were removed from this wedding's system.</p>
-      <button class="btn ghost" data-go="welcome">Back to start</button>
-    </div>
   </section>
 
   <!-- PHOTOGRAPHER VIEW -->
@@ -523,7 +508,7 @@ p{margin:0}
       const blob = await selfieBlob();
       if (blob){
         const path = `${user.id}/${row.id}.jpg`;
-        const up = await sb.storage.from('selfies').upload(path, blob, { contentType: 'image/jpeg', upsert: true });
+        const up = await sb.storage.from('selfies').upload(path, blob, { contentType: 'image/jpeg', upsert: false });
         if (!up.error){ entry.path = path; await sb.from('guest_log').update({ selfie_path: path }).eq('id', row.id); }
       }
       return entry;
@@ -657,9 +642,6 @@ p{margin:0}
     extra = 1; const before = matched.length; renderGallery();
     toast(matched.length > before ? '1 new photo of you was added' : 'No new photos yet');
   };
-  $('del').onclick = () => $('del-confirm').hidden = false;
-  $('del-no').onclick = () => $('del-confirm').hidden = true;
-  $('del-yes').onclick = () => { $('del-confirm').hidden = true; if (cur){ const c = cur; if (sb && c.path) sb.storage.from('selfies').remove([c.path]).catch(() => {}); logUpdate({ deleted: true, selfie_path: null }); cur = null; } who = null; $('preview').hidden = true; $('to-consent').disabled = true; show('deleted'); };
 
   let lbIndex = -1;
   function openLightbox(i){
