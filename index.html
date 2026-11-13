@@ -344,6 +344,7 @@ p{margin:0}
 <div class="toast" id="toast" hidden></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script>
 (function(){
   // ---------- sample people and photos ----------
@@ -545,7 +546,50 @@ p{margin:0}
     document.querySelectorAll('.thumb').forEach(t => t.classList.remove('sel'));
     $('select-toggle').textContent = selecting ? 'Cancel' : 'Select'; $('dl-all').textContent = 'Download all';
   };
-  $('dl-all').onclick = () => { const list = selected.size ? [...selected] : matched; addDownloads(list); toast(`Real app: saves ${list.length} full-size photos as a zip. Recorded in the photographer's log.`); };
+  // ---------- real downloads ----------
+  const inViewerFrame = (() => { try { return window.top !== window; } catch (e) { return true; } })();
+  function photoBlob(i){
+    return new Promise((resolve, reject) => {
+      const svg = photoSVG(i).replace('<svg ', '<svg width="1200" height="1200" ');
+      const img = new Image();
+      img.onload = () => {
+        const c = document.createElement('canvas'); c.width = c.height = 1200;
+        c.getContext('2d').drawImage(img, 0, 0, 1200, 1200);
+        c.toBlob(b => b ? resolve(b) : reject(new Error('no image')), 'image/jpeg', 0.92);
+      };
+      img.onerror = () => reject(new Error('render failed'));
+      img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+    });
+  }
+  const dlName = i => 'Sneha-Karthik_' + fileName(i).replace('.JPG', '.jpg');
+  function saveBlob(blob, name){
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  }
+  let busy = false;
+  async function savePhotos(list){
+    if (busy || !list.length) return;
+    if (inViewerFrame){ toast('Downloads work on the live site link, not inside this preview.'); return; }
+    busy = true; toast(list.length > 1 ? `Preparing ${list.length} photos…` : 'Preparing photo…');
+    try {
+      const files = await Promise.all(list.map(async i => new File([await photoBlob(i)], dlName(i), {type: 'image/jpeg'})));
+      const touch = matchMedia('(pointer: coarse)').matches;
+      if (touch && navigator.canShare && navigator.canShare({files})){
+        try { await navigator.share({files, title: 'My wedding photos'}); addDownloads(list); toast('Choose "Save image" to keep them in your gallery'); }
+        catch (e) { if (e.name !== 'AbortError') throw e; }
+      } else if (files.length === 1){
+        saveBlob(files[0], files[0].name); addDownloads(list); toast('Photo downloaded');
+      } else if (window.JSZip){
+        const zip = new JSZip(); files.forEach(f => zip.file(f.name, f));
+        saveBlob(await zip.generateAsync({type: 'blob'}), 'Sneha-Karthik-my-photos.zip'); addDownloads(list); toast(`${files.length} photos downloaded as a zip`);
+      } else {
+        files.forEach((f, k) => setTimeout(() => saveBlob(f, f.name), k * 400)); addDownloads(list); toast(`${files.length} photos downloading`);
+      }
+    } catch (e) { toast('Download failed. Check your connection and try again.'); }
+    busy = false;
+  }
+  $('dl-all').onclick = () => savePhotos(selected.size ? [...selected] : matched);
   $('refresh').onclick = () => {
     if (extra){ toast('No new photos yet. Check again later.'); return; }
     extra = 1; const before = matched.length; renderGallery();
@@ -564,7 +608,7 @@ p{margin:0}
   }
   $('lb-close').onclick = () => $('lightbox').hidden = true;
   $('lightbox').onclick = e => { if (e.target.id === 'lightbox') $('lightbox').hidden = true; };
-  $('lb-dl').onclick = () => { addDownloads([lbIndex]); toast('Real app: saves the full-size photo. Recorded in the photographer\'s log.'); };
+  $('lb-dl').onclick = () => savePhotos([lbIndex]);
   document.addEventListener('keydown', e => { if (e.key === 'Escape') $('lightbox').hidden = true; });
 
   drawLog();
